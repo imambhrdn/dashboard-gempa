@@ -119,13 +119,15 @@
       <div id="map"></div>
     </div>
   </div>
-  <h3>Riwayat Getaran (max 5)</h3>
+  <h3>Riwayat Getaran</h3>
   <table id="historyTable">
     <thead><tr><th>Waktu</th><th>ax</th><th>ay</th><th>az</th><th>Total</th></tr></thead>
     <tbody></tbody>
   </table>
 </div>
-<audio id="alarmSound" src="https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg" preload="auto"></audio>
+<audio id="alarmSedang" src="sedang Jokowi-enhanced-v2.wav" preload="auto"></audio>
+<audio id="alarmKuat" src="Jokowi kuat-enhanced-v2.wav" preload="auto"></audio>
+
 <script>
 const firebaseConfig = {
   apiKey: "YOUR_API_KEY",
@@ -207,8 +209,8 @@ firebase.database().ref("getaran/data").on('value', snap => {
   document.getElementById('magValue').innerText = mag;
   if(total < 1000){ txt.innerText = 'Tenang'; stopAlarm(); box.style.background='#cde4cd'; }
   else if(total < 2000){ txt.innerText = 'Ringan'; stopAlarm(); box.style.background='#fff7cc'; }
-  else if(total < 5000){ txt.innerText = 'Sedang'; startAlarm(); box.style.background='#ffe2b2'; }
-  else { txt.innerText = '⚠️ Sangat kuat!'; startAlarm(); box.style.background='#f7bfbf'; }
+  else if(total < 3000){ txt.innerText = 'Sedang'; alarmSedang(); box.style.background='#ffe2b2'; }
+  else { txt.innerText = '⚠️ Sangat kuat!'; alarmKuat(); box.style.background='#f7bfbf'; }
 });
 firebase.database().ref("getaran/history").limitToLast(50).on('child_added', snap => {
   const d = snap.val(), w = new Date().toLocaleTimeString();
