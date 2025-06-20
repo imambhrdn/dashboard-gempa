@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>Dashboard Gempa Neumorfik</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-database-compat.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Roboto', sans-serif;
+      background: #e0e5ec;
+      color: #333;
+      margin: 0;
+      padding: 20px;
+    }
+    .neumorphic {
+      max-width: 1200px;
+      margin: auto;
+      background: #e0e5ec;
+      border-radius: 20px;
+      box-shadow: 20px 20px 60px #bebebe, -20px -20px 60px #ffffff;
+      padding: 30px;
+    }
+    h2 {
+      text-align: center;
+      color: #333;
+    }
+    .toolbar {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .toolbar button {
+      background: #e0e5ec;
+      border: none;
+      padding: 10px 20px;
+      margin: 5px;
+      border-radius: 10px;
+      box-shadow: 4px 4px 10px #bebebe, -4px -4px 10px #ffffff;
+      cursor: pointer;
+    }
+    .toolbar button:hover {
+      box-shadow: inset 4px 4px 10px #bebebe, inset -4px -4px 10px #ffffff;
+    }
+    #intensityBox {
+      text-align: center;
+      padding: 15px;
+      margin-bottom: 10px;
+      font-weight: bold;
+      font-size: 1.2em;
+      border-radius: 15px;
+      box-shadow: inset 4px 4px 10px #bebebe, inset -4px -4px 10px #ffffff;
+    }
+    #infoBox {
+      text-align: center;
+      margin-bottom: 20px;
+      font-size: 1em;
+    }
+    .flex {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      justify-content: space-between;
+    }
+    .chart-container, .map-container {
+      flex: 1 1 48%;
+      min-width: 300px;
+    }
+    canvas, #map {
+      width: 100%;
+      height: 400px;
+      border-radius: 15px;
+      box-shadow: inset 4px 4px 10px #bebebe, inset -4px -4px 10px #ffffff;
+      background: #e0e5ec;
+    }
+    table {
+      width: 100%;
+      margin-top: 20px;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #e0e5ec;
+      box-shadow: inset 4px 4px 10px #bebebe, inset -4px -4px 10px #ffffff;
+      border-collapse: collapse;
+    }
+    th, td {
+      padding: 12px;
+      text-align: center;
+      border-bottom: 1px solid #ccc;
+    }
+    th {
+      background: #d1d9e6;
+    }
+    audio { display:none; }
+  </style>
+</head>
+<body>
+<div class="neumorphic">
+  <h2>📡 Dashboard Gempa & Peta Lokasi Sensor</h2>
+  <div class="toolbar">
+    <button onclick="enableAlarm()">🔊 Aktifkan Alarm</button>
+    <button onclick="chart.resetZoom()">🔄 Reset Zoom</button>
+    <button onclick="downloadCSV()">⬇️ Export CSV</button>
+    <button id="simBtn" onclick="toggleSimulation()">🎛 Mode Simulasi</button>
+  </div>
+  <div id="intensityBox">Status: <span id="intensityText">Menunggu data...</span></div>
+  <div id="infoBox">
+    <strong>PGA:</strong> <span id="pgaValue">-</span> m/s² |
+    <strong>Magnitude:</strong> <span id="magValue">-</span>
+  </div>
+  <div class="flex">
+    <div class="chart-container">
+      <canvas id="vibrationChart"></canvas>
+    </div>
+    <div class="map-container">
+      <div id="map"></div>
+    </div>
+  </div>
+  <h3>Riwayat Getaran (max 5)</h3>
+  <table id="historyTable">
+    <thead><tr><th>Waktu</th><th>ax</th><th>ay</th><th>az</th><th>Total</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</div>
+<audio id="alarmSound" src="https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg" preload="auto"></audio>
+<script>
+const firebaseConfig = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_AUTH_DOMAIN",
+  databaseURL: "https://gempa-monitoring-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "gempa-monitoring",
+  storageBucket: "YOUR_BUCKET",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID"
+};
+firebase.initializeApp(firebaseConfig);
+const ctx = document.getElementById('vibrationChart').getContext('2d');
+const chart = new Chart(ctx, {
+  type: 'line',
+  data: { labels: [], datasets: [
+    {label:'ax', borderColor:'red', data:[], fill:false},
+    {label:'ay', borderColor:'green', data:[], fill:false},
+    {label:'az', borderColor:'blue', data:[], fill:false},
+    {label:'Total', borderColor:'black', borderDash:[5,5], data:[], fill:false} ]},
+  options: {
+    responsive:true,
+    plugins:{ zoom:{ pan:{enabled:true,mode:'x'}, zoom:{wheel:{enabled:true},pinch:{enabled:true},mode:'x'} } },
+    scales:{
+      x:{title:{display:true,text:'Waktu'}},
+      y:{title:{display:true,text:'Akselerasi'}, beginAtZero:true}
+    }
+  }
+});
+const map = L.map('map').setView([-6.897229, 110.090133], 10);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap'}).addTo(map);
+L.marker([-6.897229, 110.090133]).addTo(map).bindPopup('Lokasi Sensor').openPopup();
+const alarm = document.getElementById('alarmSound');
+let alarmEnabled = false, alarmActive = false, csvData = [], updateIndex = 0;
+function enableAlarm(){
+  alarm.play().then(()=>{alarm.pause();alarm.currentTime=0;alarmEnabled=true;alert('🔊 Alarm aktif');})
+  .catch(()=>alert('⚠️ Izinkan suara')); }
+function startAlarm(){ if(!alarmActive && alarmEnabled){ alarm.play(); alarmActive=true; } }
+function stopAlarm(){ if(alarmActive){ alarm.pause(); alarm.currentTime=0; alarmActive=false; } }
+function downloadCSV(){
+  if(csvData.length === 0){ alert('📁 Tidak ada data'); return; }
+  let csv = 'Waktu,ax,ay,az,Total\n';
+  csvData.forEach(r=> csv += r.join(',') + '\n');
+  const blob = new Blob([csv], {type:'text/csv'}), u = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = u; a.download = 'riwayat_getaran.csv'; a.click(); URL.revokeObjectURL(u);
+}
+function calculateMagnitude(pgaMS){
+  const M = Math.log10(pgaMS) + 1.0;
+  return isFinite(M) ? M.toFixed(2) : '-';
+}
+let simulationActive = false;
+let simInterval;
+function toggleSimulation() {
+  simulationActive = !simulationActive;
+  const btn = document.getElementById("simBtn");
+  btn.innerText = simulationActive ? "⏹ Stop Simulasi" : "🎛 Mode Simulasi";
+  if (simulationActive) {
+    simInterval = setInterval(() => {
+      const ax = Math.floor(Math.random() * 5000);
+      const ay = Math.floor(Math.random() * 5000);
+      const az = Math.floor(Math.random() * 5000 + 16384);
+      firebase.database().ref("getaran/data").set({ ax, ay, az });
+    }, 1000);
+  } else {
+    clearInterval(simInterval);
+  }
+}
+firebase.database().ref("getaran/data").on('value', snap => {
+  const d = snap.val();
+  if (!d) return;
+  const ax = Math.abs(d.ax||0), ay = Math.abs(d.ay||0),
+        az = Math.max(0, Math.abs(d.az||0) - 16384),
+        total = Math.round(Math.sqrt(ax*ax + ay*ay + az*az));
+  const txt = document.getElementById('intensityText');
+  const box = document.getElementById('intensityBox');
+  const pgaG = total / 16384;
+  const pgaMS = (pgaG * 9.81).toFixed(2);
+  const mag = calculateMagnitude(pgaG * 9.81);
+  document.getElementById('pgaValue').innerText = pgaMS;
+  document.getElementById('magValue').innerText = mag;
+  if(total < 1000){ txt.innerText = 'Tenang'; stopAlarm(); box.style.background='#cde4cd'; }
+  else if(total < 2000){ txt.innerText = 'Ringan'; stopAlarm(); box.style.background='#fff7cc'; }
+  else if(total < 5000){ txt.innerText = 'Sedang'; startAlarm(); box.style.background='#ffe2b2'; }
+  else { txt.innerText = '⚠️ Sangat kuat!'; startAlarm(); box.style.background='#f7bfbf'; }
+});
+firebase.database().ref("getaran/history").limitToLast(50).on('child_added', snap => {
+  const d = snap.val(), w = new Date().toLocaleTimeString();
+  const ax = Math.abs(d.ax||0), ay = Math.abs(d.ay||0),
+        az = Math.max(0, Math.abs(d.az||0) - 16384),
+        total = Math.round(Math.sqrt(ax*ax + ay*ay + az*az));
+  chart.data.labels.push(w);
+  [ax, ay, az, total].forEach((v,i)=> chart.data.datasets[i].data.push(v));
+  if(chart.data.labels.length > 50){
+    chart.data.labels.shift();
+    chart.data.datasets.forEach(ds=> ds.data.shift());
+  }
+  chart.update();
+  const tb = document.querySelector('#historyTable tbody');
+  const rowHTML = `<td>${w}</td><td>${ax}</td><td>${ay}</td><td>${az}</td><td>${total}</td>`;
+  if(total > 2000){
+    if(tb.rows.length < 5){ const r = document.createElement('tr'); r.innerHTML = rowHTML; tb.appendChild(r); }
+    else { tb.rows[updateIndex%5].innerHTML = rowHTML; updateIndex++; }
+    csvData.push([w, ax, ay, az, total]);
+  }
+});
+</script>
+</body>
+</html>
